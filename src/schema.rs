@@ -12,7 +12,10 @@ diesel::table! {
 diesel::table! {
     users (id) {
         id -> Int4,
+        #[max_length = 255]
         email -> Varchar,
+        #[max_length = 60]
+        password_hash -> Bpchar,
     }
 }
 
@@ -24,6 +27,9 @@ diesel::table! {
         user_id -> Int4,
     }
 }
+
+diesel::joinable!(liked_videos -> users (user_id));
+diesel::joinable!(watched_videos -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     liked_videos,

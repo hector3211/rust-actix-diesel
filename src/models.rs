@@ -41,3 +41,4 @@ pub struct UserWithVideos {
 pub struct PostUser {
     pub pass: String,
 }
+

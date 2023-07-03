@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use diesel::prelude::*;
 use serde::{Serialize, Deserialize};
 use crate::schema::{users,liked_videos,watched_videos};
@@ -42,3 +44,31 @@ pub struct PostUser {
     pub pass: String,
 }
 
+#[derive(Deserialize,Serialize,Clone,Debug)]
+pub enum VideoType {
+    WATCHED,
+    LIKED
+}
+
+impl FromStr for VideoType {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "liked" => {
+                Ok(self::VideoType::LIKED)
+            },
+            "watched" => {
+                Ok(self::VideoType::LIKED)
+            },
+                _ => {
+                Err(anyhow::Error::msg("Couldn't convert"))
+            }
+        }
+    }
+}
+
+#[derive(Deserialize,Serialize,Debug)]
+pub enum VideoTypeResult {
+    WATCHED(WatchedVideos),
+    LIKED(LikedVideos)
+}

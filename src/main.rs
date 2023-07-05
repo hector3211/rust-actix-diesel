@@ -1,35 +1,37 @@
 use actix_identity::{IdentityMiddleware, Identity};
 use actix_session::{
     config::PersistentSession,
-    storage::CookieSessionStore,
+    storage::{CookieSessionStore, SessionKey, SessionStore},
     SessionMiddleware
 };
 use actix_web::{
-    cookie::{Key,SameSite},
+    cookie::{Key,SameSite, Cookie},
     App,
     HttpResponse,
     HttpServer,
     Result,
-    error::{ErrorInternalServerError, self},
+    error::{ErrorInternalServerError, self, ErrorUnauthorized},
     web,
-    guard, Responder,
+    guard::{self, Guard}, Responder, Error,
 };
 
 use cookie::time::Duration;
+use guards::SessionGuard;
 use models::VideoType;
 use tracing::info;
 
 use diesel::{
-    r2d2::{self,ConnectionManager},
+    r2d2::{self,ConnectionManager, Pool},
     PgConnection
 };
 use dotenv::dotenv;
-use std::env;
+use std::{env, sync::{Arc, Mutex}};
 use std::io;
 pub mod schema;
 pub mod models;
 pub mod auth;
 pub mod db_actions;
+pub mod guards;
 
 use crate::auth::{
     login,
@@ -47,7 +49,12 @@ pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbError = Box<dyn std::error::Error + Send + Sync>;
 
 const ONEDAY: Duration = Duration::days(1);
+const ONEMIN: Duration = Duration::minutes(1);
 
+pub struct AppState {
+    pub pool: DbPool,
+    pub api_keys: Mutex<Vec<String>>,
+}
 
 
 #[actix_web::main]
@@ -62,23 +69,33 @@ async fn main() -> io::Result<()> {
     let pool = r2d2::Pool::builder()
         .build(manager)
         .expect("Failed to create pool");
+    let state = Arc::new(AppState {
+        pool,
+        api_keys: Mutex::new(Vec::new()),
+    });
 
     HttpServer::new(move|| {
         App::new()
             .wrap(IdentityMiddleware::default())
             .wrap(
                 SessionMiddleware::builder(CookieSessionStore::default(), key.clone())
-                .cookie_name("HO-auth".to_owned())
-                .cookie_http_only(false)
+                // .cookie_name("HO-auth".to_owned())
+                .cookie_http_only(true)
                 .cookie_same_site(SameSite::Strict)
                 .session_lifecycle(PersistentSession::default().session_ttl(ONEDAY))
                 .build(),
             )
-            .app_data(web::Data::new(pool.clone()))
+            .app_data(web::Data::new(state.clone()))
             .route("/", web::get().to(index))
             .route("/login", web::post().to(login))
             .route("/logot", web::post().to(logout))
             .service(web::scope("/user")
+                // .guard(guard::fn_guard(|ctx| {
+                //     ctx.head().headers().contains_key("Cookie")
+                // }))
+                // .guard(guard::fn_guard(|ctx| {
+                //     ctx.head().headers().contains_key("auth")
+                // }))
                 .route("/secret", web::get().to(secret))
                 .route("/info/{user_id}", web::get().to(user_data))
                 .route("/{user_email}/{user_password}", web::post().to(new_user))
@@ -102,26 +119,30 @@ async fn index(identity: Option<Identity>) -> actix_web::Result<impl Responder> 
 
 
 async fn user_data(
-    pool: web::Data<DbPool>,
-    path: web::Path<i32>
+    state: web::Data<Arc<AppState>>,
+    path: web::Path<i32>,
+    session_guard: SessionGuard
 )
 -> Result<HttpResponse> {
-    let user_id = path.into_inner();
-    let info = web::block(move || {
-        let mut conn = pool.get()?;
-        get_everything(&mut conn, user_id)
+    if let Some(_session) = session_guard.session {
+        let user_id = path.into_inner();
+        let info = web::block(move || {
+            let mut conn = state.pool.get()?;
+            get_everything(&mut conn, user_id)
 
-    })
-    .await?
-    .map_err(|err| ErrorInternalServerError(err))?;
+        })
+            .await?
+            .map_err(|err| ErrorInternalServerError(err))?;
 
-
-     Ok(HttpResponse::Ok().json(info))
+        Ok(HttpResponse::Ok().json(info))
+    } else {
+        Ok(HttpResponse::Unauthorized().body("Not authorized!"))
+    }
     
 }
 
 async fn new_user(
-    pool: web::Data<DbPool>,
+    state: web::Data<Arc<AppState>>,
     path: web::Path<(String, String)>,
 )
 -> Result<HttpResponse> {
@@ -129,7 +150,7 @@ async fn new_user(
     match validate_email(&email) {
         Ok(_) => {
             let user = web::block(move|| {
-                let mut conn = pool.get()?;
+                let mut conn = state.pool.get()?;
                 create_user(&mut conn,&email,password)
             })
                 .await?
@@ -146,7 +167,7 @@ async fn new_user(
 
 
 async fn new_video(
-    pool: web::Data<DbPool>,
+    state: web::Data<Arc<AppState>>,
     path: web::Path<(i32,String,i32,String)>,
 )
 -> Result<HttpResponse> {
@@ -156,7 +177,7 @@ async fn new_video(
     match video_type {
         VideoType::LIKED => {
             let liked_vid = web::block(move|| {
-                let mut conn = pool.get()?;
+                let mut conn = state.pool.get()?;
                 create_liked_videos(&mut conn, id,title.as_str(),vid_id,models::VideoType::LIKED)
             })
                 .await?
@@ -166,7 +187,7 @@ async fn new_video(
         }
         VideoType::WATCHED => {
             let watched_vid = web::block(move|| {
-                let mut conn = pool.get()?;
+                let mut conn = state.pool.get()?;
                 create_liked_videos(&mut conn, id,title.as_str(),vid_id,models::VideoType::WATCHED)
             })
                 .await?

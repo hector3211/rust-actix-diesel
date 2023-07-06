@@ -85,15 +85,19 @@ pub fn get_user_info(
 
 pub fn create_user(
     conn: &mut PgConnection,
-    email: &str,
-    pass: String
+    creds: Credentials
 )
 -> Result<User, DbError> {
-    let hashed_password = hash_password(&pass);
+    let mut role: String = String::from("User");
+    if creds.email == std::env::var("ADMIN_KEY").unwrap() && creds.password == std::env::var("ADMIN_SECOND_KEY").unwrap() {
+        role = "ADMIN".to_string();
+    } 
+    let hashed_password = hash_password(&creds.password);
     let user = diesel::insert_into(users::table)
         .values((
-            users::email.eq(email),
-            users::password_hash.eq(hashed_password)
+            users::email.eq(creds.email),
+            users::password_hash.eq(hashed_password),
+            users::role.eq(role)
         ))
         .returning(User::as_returning())
         .get_result(conn)?;

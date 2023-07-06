@@ -1,26 +1,16 @@
-
-
 use std::sync::Arc;
-
-use actix_identity::Identity;
-use actix_web::cookie::Cookie;
-
 use bcrypt;
 use actix_session::Session;
-use actix_web::error::{InternalError, ErrorUnauthorized};
-
 use actix_web::{HttpResponse, web, Responder, Result, Error};
-
-
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use tracing::log::info;
 
 use crate::AppState;
 
-use crate::db_actions::authenticate;
+use crate::db_actions::{authenticate, create_user};
 use crate::guards::SessionGuard;
+use crate::models::User;
 
 
 #[derive(Debug, Deserialize,Serialize,Clone)]
@@ -29,14 +19,66 @@ pub struct Credentials {
     pub password: String,
 }
 
-
-
-pub fn validate_session(
-    sess_guard: SessionGuard
+pub async fn sign_up(
+    creds: web::Json<Credentials>,
+    session: Session,
+    state: web::Data<Arc<AppState>>
 )
--> Result<HttpResponse, Error> {
-    // let auth: Option<String> = session.get("auth").unwrap_or(None);
+-> Result<impl Responder> {
+    let creds = creds.into_inner();
 
+    let user = web::block(move || {
+        let mut conn = state.pool.get()?;
+        create_user(&mut conn, creds)
+    })
+    .await?;
+
+    let user: User = user.unwrap();
+    session.insert("user", user.id).unwrap();
+    Ok(HttpResponse::Created().json(user))
+}
+
+pub async fn login(
+    creds: web::Json<Credentials>,
+    session: Session,
+    state: web::Data<Arc<AppState>>,
+)
+-> Result<impl Responder> {
+    let creds = creds.into_inner();
+    let cred_two = creds.clone();
+
+    let resp = web::block(move || {
+        let mut conn = state.pool.get()?;
+        authenticate(creds, &mut conn)
+    })
+    .await?;
+    
+    let user: User = resp.unwrap();
+
+    let hash_check = bcrypt::verify(cred_two.password, &user.password_hash).unwrap();
+    match hash_check {
+       true => {
+             match session.get::<String>("user").unwrap() {
+                Some(_key) => {
+                    session.renew();
+                    Ok(HttpResponse::Ok().body("Your Back in action!"))
+                }
+                None => {
+                    session.insert("user", user.id).unwrap();
+                    Ok(HttpResponse::Found().body("All logged in, Welcome!"))
+                }
+            }
+
+        },
+        false => {
+            Ok(HttpResponse::Unauthorized().body("Not Authenticated!"))
+
+        }
+    }
+}
+
+
+pub fn validate_session(sess_guard: SessionGuard)-> Result<HttpResponse, Error> {
     if let Some(session) = sess_guard.session {
             Ok(HttpResponse::Ok().body(format!("Session: {}", session)))
         } else {
@@ -45,58 +87,11 @@ pub fn validate_session(
         
 }
 
-pub async fn secret(
-    sess_guard: SessionGuard
-)
--> Result<impl Responder> {
+pub async fn secret(sess_guard: SessionGuard) -> Result<impl Responder> {
     let auth = validate_session(sess_guard).unwrap();
-
-    // let user_email: Option<String> = session.get("user_id").unwrap_or(None);
     Ok(auth)
 }
 
-pub async fn login(
-    creds: web::Json<Credentials>,
-    session: Session,
-    state: web::Data<Arc<AppState>>,
-)
--> HttpResponse {
-    let creds = creds.into_inner();
-    let cred_two = creds.clone();
-
-    let mut conn = state.pool.get().unwrap();
-    let resp = web::block(move || {
-        authenticate(creds, &mut conn)
-    })
-    .await
-    .map_err(|err| ErrorUnauthorized(err))
-    .expect("web block functin failed!");
-    
-    let user = resp.unwrap();
-    let hash_check = bcrypt::verify(cred_two.password, &user.password_hash).unwrap();
-    match hash_check {
-       true => {
-             match session.get::<String>("user").unwrap() {
-                Some(key) => {
-                    if key == cred_two.email {
-                        HttpResponse::Ok().body("Your Back in action!")
-                    } else {
-                        todo!()
-                    }
-                }
-                None => {
-                    session.insert("user", cred_two.email).unwrap();
-                    HttpResponse::Found().body("All logged in, Welcome!")
-                }
-            }
-
-        },
-        false => {
-            HttpResponse::Unauthorized().body("Not Authenticated!")
-
-        }
-    }
-}
 
 pub async fn apikey_to_state(
     state: web::Data<Arc<AppState>>,

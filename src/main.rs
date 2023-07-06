@@ -15,6 +15,7 @@ use actix_web::{
     guard::{self, Guard}, Responder, Error,
 };
 
+use auth::sign_up;
 use cookie::time::Duration;
 use guards::SessionGuard;
 use models::VideoType;
@@ -59,8 +60,8 @@ pub struct AppState {
 
 #[actix_web::main]
 async fn main() -> io::Result<()> {
-    env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
-    info!("staring server at http://localhost:8080");
+    // env_logger::init_from_env(env_logger::Env::new().default_filter_or("info"));
+    // info!("staring server at http://localhost:8080");
     let key = Key::generate();
      dotenv().ok();
     let database_url = env::var("DATABASE_URL")
@@ -87,18 +88,12 @@ async fn main() -> io::Result<()> {
             )
             .app_data(web::Data::new(state.clone()))
             .route("/", web::get().to(index))
+            .route("/signup", web::post().to(sign_up))
             .route("/login", web::post().to(login))
             .route("/logot", web::post().to(logout))
             .service(web::scope("/user")
-                // .guard(guard::fn_guard(|ctx| {
-                //     ctx.head().headers().contains_key("Cookie")
-                // }))
-                // .guard(guard::fn_guard(|ctx| {
-                //     ctx.head().headers().contains_key("auth")
-                // }))
                 .route("/secret", web::get().to(secret))
                 .route("/info/{user_id}", web::get().to(user_data))
-                .route("/{user_email}/{user_password}", web::post().to(new_user))
                 .route("/video/{id}/{title}/{vid_id}/{video_type}", web::post().to(new_video))
             )
     })
@@ -131,39 +126,38 @@ async fn user_data(
             get_everything(&mut conn, user_id)
 
         })
-            .await?
-            .map_err(|err| ErrorInternalServerError(err))?;
+        .await?;
 
-        Ok(HttpResponse::Ok().json(info))
+        Ok(HttpResponse::Ok().json(info.unwrap()))
     } else {
         Ok(HttpResponse::Unauthorized().body("Not authorized!"))
     }
     
 }
 
-async fn new_user(
-    state: web::Data<Arc<AppState>>,
-    path: web::Path<(String, String)>,
-)
--> Result<HttpResponse> {
-    let (email, password) = path.into_inner();
-    match validate_email(&email) {
-        Ok(_) => {
-            let user = web::block(move|| {
-                let mut conn = state.pool.get()?;
-                create_user(&mut conn,&email,password)
-            })
-                .await?
-                .map_err(|err| ErrorInternalServerError(err))?;
-
-            Ok(HttpResponse::Ok().json(user))
-        },
-            Err(err) => {
-            Ok(err)
-        }
-    }
-    
-}
+// async fn new_user(
+//     state: web::Data<Arc<AppState>>,
+//     path: web::Path<(String, String)>,
+// )
+// -> Result<HttpResponse> {
+//     let (email, password) = path.into_inner();
+//     match validate_email(&email) {
+//         Ok(_) => {
+//             let user = web::block(move|| {
+//                 let mut conn = state.pool.get()?;
+//                 create_user(&mut conn,&email,password)
+//             })
+//                 .await?
+//                 .map_err(|err| ErrorInternalServerError(err))?;
+//
+//             Ok(HttpResponse::Ok().json(user))
+//         },
+//             Err(err) => {
+//             Ok(err)
+//         }
+//     }
+//    
+// }
 
 
 async fn new_video(

@@ -3,7 +3,8 @@
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
-    password_hash CHAR(60) NOT NULL
+    password_hash CHAR(60) NOT NULL,
+    role VARCHAR(5) DEFAULT 'User'
 );
 
 CREATE TABLE liked_videos (

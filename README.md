@@ -1,12 +1,6 @@
 # Actix Diesel REST API
 
-## Features
-
-- Sessions
-- Cookies
-- Authentication
-- Authorization
-- Guards
+---
 
 ## Desciption
 
@@ -16,7 +10,19 @@ It implements with tokio to make diesel db querys with blocking functions easy. 
 choice, DX is awsome and it's simple to get started with. Ended up going to Actix for the server framework
 , they have great documentation combined with great community libraries made it easy to pick.
 
-## Example
+---
+
+## Features
+
+- Sessions
+- Cookies
+- Authentication
+- Authorization
+- Guards
+
+---
+
+## Examples
 
 ### Loging in
 

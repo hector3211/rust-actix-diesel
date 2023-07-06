@@ -1,7 +1,8 @@
 use std::sync::Arc;
+use actix_identity::Identity;
 use bcrypt;
 use actix_session::Session;
-use actix_web::{HttpResponse, web, Responder, Result, Error};
+use actix_web::{HttpResponse, web, Responder, Result, Error, HttpRequest, HttpMessage};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ pub struct Credentials {
 pub async fn sign_up(
     creds: web::Json<Credentials>,
     session: Session,
-    state: web::Data<Arc<AppState>>
+    state: web::Data<Arc<AppState>>,
 )
 -> Result<impl Responder> {
     let creds = creds.into_inner();
@@ -40,8 +41,8 @@ pub async fn sign_up(
 
 pub async fn login(
     creds: web::Json<Credentials>,
-    session: Session,
     state: web::Data<Arc<AppState>>,
+    req: HttpRequest
 )
 -> Result<impl Responder> {
     let creds = creds.into_inner();
@@ -58,16 +59,8 @@ pub async fn login(
     let hash_check = bcrypt::verify(cred_two.password, &user.password_hash).unwrap();
     match hash_check {
        true => {
-             match session.get::<String>("user").unwrap() {
-                Some(_key) => {
-                    session.renew();
-                    Ok(HttpResponse::Ok().body("Your Back in action!"))
-                }
-                None => {
-                    session.insert("user", user.id).unwrap();
-                    Ok(HttpResponse::Found().body("All logged in, Welcome!"))
-                }
-            }
+            Identity::login(&req.extensions(), user.email.into()).unwrap();
+            Ok(HttpResponse::Ok().body("Your Back in action!"))
 
         },
         false => {
@@ -102,14 +95,15 @@ pub async fn apikey_to_state(
 }
 
 pub async fn logout(
-    session: Session,
+    // session: Session,
+    user: Identity
 )
 -> Result<impl Responder> {
-    session.clear();
+    user.logout();
     Ok(HttpResponse::Ok())
 }
 
-fn generate_key()
+fn _generate_key()
 -> String {
     let api_key:String = thread_rng()
         .sample_iter(&Alphanumeric)

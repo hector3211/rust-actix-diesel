@@ -1,6 +1,5 @@
-use actix_session::Session;
 use actix_utils::future;
-use actix_web::{Error, FromRequest, dev, cookie::Cookie, HttpRequest};
+use actix_web::{Error, FromRequest, dev, HttpRequest};
 
 
 pub struct SessionGuard {
@@ -28,8 +27,3 @@ impl FromRequest for SessionGuard {
 }
 
 
-async fn extract_session_key( session: Session) -> Option<String> {
-    let api_key = session.get::<String>("api-key").unwrap();
-    return api_key;
-
-}

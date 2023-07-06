@@ -1,18 +1,17 @@
 use actix_identity::{IdentityMiddleware, Identity};
 use actix_session::{
-    config::PersistentSession,
-    storage::{CookieSessionStore, SessionKey, SessionStore},
+    config::{PersistentSession, CookieContentSecurity},
+    storage::CookieSessionStore,
     SessionMiddleware
 };
 use actix_web::{
-    cookie::{Key,SameSite, Cookie},
+    cookie::{Key,SameSite},
     App,
     HttpResponse,
     HttpServer,
     Result,
-    error::{ErrorInternalServerError, self, ErrorUnauthorized},
-    web,
-    guard::{self, Guard}, Responder, Error,
+    error::ErrorInternalServerError,
+    web, Responder,
 };
 
 use auth::sign_up;
@@ -22,7 +21,7 @@ use models::VideoType;
 use tracing::info;
 
 use diesel::{
-    r2d2::{self,ConnectionManager, Pool},
+    r2d2::{self,ConnectionManager},
     PgConnection
 };
 use dotenv::dotenv;
@@ -41,15 +40,13 @@ use crate::auth::{
 };
 use crate::db_actions::{
     get_everything,
-    validate_email,
-    create_user,
     create_liked_videos
 };
 
 pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbError = Box<dyn std::error::Error + Send + Sync>;
 
-const ONEDAY: Duration = Duration::days(1);
+const _ONEDAY: Duration = Duration::days(1);
 const ONEMIN: Duration = Duration::minutes(1);
 
 pub struct AppState {
@@ -79,11 +76,13 @@ async fn main() -> io::Result<()> {
         App::new()
             .wrap(IdentityMiddleware::default())
             .wrap(
-                SessionMiddleware::builder(CookieSessionStore::default(), key.clone())
-                // .cookie_name("HO-auth".to_owned())
+                SessionMiddleware::builder(
+                    CookieSessionStore::default(), key.clone(),
+                )
                 .cookie_http_only(true)
+                .cookie_content_security(CookieContentSecurity::Private)
                 .cookie_same_site(SameSite::Strict)
-                .session_lifecycle(PersistentSession::default().session_ttl(ONEDAY))
+                .session_lifecycle(PersistentSession::default().session_ttl(ONEMIN))
                 .build(),
             )
             .app_data(web::Data::new(state.clone()))
@@ -102,14 +101,13 @@ async fn main() -> io::Result<()> {
     .await
 }
 
-async fn index(identity: Option<Identity>) -> actix_web::Result<impl Responder> {
-    let id = match identity.map(|id| id.id()) {
-        None => "anonymous".to_owned(),
-        Some(Ok(id)) => id,
-        Some(Err(err)) => return Err(error::ErrorInternalServerError(err)),
-    };
+async fn index(user: Option<Identity>) -> Result<impl Responder> {
+    if let Some(user) = user {
+        Ok(format!("Hello {}",user.id().unwrap()))
+    } else {
+        Ok(format!("Hello User"))
+    }
 
-    Ok(format!("Hello {id}"))
 }
 
 

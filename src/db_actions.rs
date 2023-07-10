@@ -1,4 +1,3 @@
-use actix_web::error::ErrorNotAcceptable;
 use diesel::prelude::*;
 use diesel::PgConnection;
 use crate::auth::Credentials;
@@ -14,11 +13,10 @@ use actix_web::HttpResponse;
 
 
 pub fn validate_email(email: &str) -> Result<(), HttpResponse> {
-    if !email.contains(".com") && !email.contains("@") {
+    if !email.contains(".com") || !email.contains("@") {
         return Err(HttpResponse::NotAcceptable().body("Email provided is invalid! please check email"))
     }
     Ok(())
-
 }
 
 fn hash_password(password: &str) -> String {

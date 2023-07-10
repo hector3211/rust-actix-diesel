@@ -1,19 +1,11 @@
 use std::sync::Arc;
 use actix_identity::Identity;
-
 use actix_session::Session;
-use actix_web::cookie::CookieBuilder;
-use actix_web::error::ErrorNotFound;
-use actix_web::{HttpResponse, web, Responder, Result, Error, HttpRequest, HttpMessage, get, post};
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use actix_web::{HttpResponse, web, Responder, Result, HttpRequest, HttpMessage, post};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
 use crate::AppState;
-
 use crate::db_actions::{authenticate, create_user, validate_email};
-use crate::guards::SessionGuard;
 use crate::models::{User, SwaggerErrorResponse};
 
 

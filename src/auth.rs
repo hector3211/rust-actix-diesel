@@ -1,25 +1,44 @@
 use std::sync::Arc;
 use actix_identity::Identity;
-use bcrypt;
+
 use actix_session::Session;
-use actix_web::{HttpResponse, web, Responder, Result, Error, HttpRequest, HttpMessage};
+use actix_web::cookie::CookieBuilder;
+use actix_web::{HttpResponse, web, Responder, Result, Error, HttpRequest, HttpMessage, get, post};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::AppState;
 
-use crate::db_actions::{authenticate, create_user};
+use crate::db_actions::{authenticate, create_user, validate_email};
 use crate::guards::SessionGuard;
-use crate::models::User;
+use crate::models::{User, SwaggerErrorResponse};
 
 
-#[derive(Debug, Deserialize,Serialize,Clone)]
+#[derive(Debug, Deserialize,Serialize,Clone, ToSchema)]
 pub struct Credentials {
     pub email: String,
     pub password: String,
 }
 
+#[utoipa::path(
+    request_body = Credentials,
+    responses(
+        (
+            status = 201,
+            description = "Sign up a user",
+            body = Credentials
+        ),
+        (
+            status = 406,
+            description = "Email Provided is not valid",
+            body = SwaggerErrorResponse,
+            example = json!(SwaggerErrorResponse::Conflict(String::from("Please Double check email, make sure it's valid")))
+        )
+    )
+)]
+#[post("/signup")]
 pub async fn sign_up(
     creds: web::Json<Credentials>,
     session: Session,
@@ -28,6 +47,7 @@ pub async fn sign_up(
 -> Result<impl Responder> {
     let creds = creds.into_inner();
 
+
     let user = web::block(move || {
         let mut conn = state.pool.get()?;
         create_user(&mut conn, creds)
@@ -35,14 +55,32 @@ pub async fn sign_up(
     .await?;
 
     let user: User = user.unwrap();
-    session.insert("user", user.id).unwrap();
+    session.insert("user", user.id.clone()).unwrap();
+    session.insert("role", user.role.clone()).unwrap();
     Ok(HttpResponse::Created().json(user))
 }
 
+#[utoipa::path(
+    request_body = Credentials,
+    responses(
+        (
+            status = 200,
+            description = "Log in a user",
+        ),
+        (
+        status = 404,
+        description = "User Not Found",
+        body = SwaggerErrorResponse,
+        example = json!(SwaggerErrorResponse::NotFound(String::from("User Not Found")))
+        ),
+    )
+)]
+#[post("/login")]
 pub async fn login(
     creds: web::Json<Credentials>,
     state: web::Data<Arc<AppState>>,
-    req: HttpRequest
+    req: HttpRequest,
+    session: Session
 )
 -> Result<impl Responder> {
     let creds = creds.into_inner();
@@ -60,7 +98,11 @@ pub async fn login(
     match hash_check {
        true => {
             Identity::login(&req.extensions(), user.email.into()).unwrap();
-            Ok(HttpResponse::Ok().body("Your Back in action!"))
+            let cookie = CookieBuilder::new("role", user.role.unwrap())
+                .secure(true)
+                .http_only(true)
+                .finish();
+            Ok(HttpResponse::Ok().cookie(cookie).finish())
 
         },
         false => {
@@ -70,6 +112,40 @@ pub async fn login(
     }
 }
 
+#[utoipa::path(
+    responses(
+        (
+            status = 200,
+            description = "Log out a user",
+        ),
+        (
+            status = 404,
+            description = "User Not Found",
+            body = SwaggerErrorResponse,
+            example = json!(SwaggerErrorResponse::NotFound(String::from("User Not Found")))
+        ),
+    )
+)]
+#[post("/logout")]
+pub async fn logout(
+    // session: Session,
+    user: Identity
+)
+-> Result<impl Responder> {
+    user.logout();
+    Ok(HttpResponse::Ok().body("Successfully Loged Out"))
+}
+
+fn _generate_key()
+-> String {
+    let api_key:String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect();
+
+    return api_key;
+}
 
 pub fn validate_session(sess_guard: SessionGuard)-> Result<HttpResponse, Error> {
     if let Some(session) = sess_guard.session {
@@ -94,22 +170,3 @@ pub async fn apikey_to_state(
     keys.push(key.to_string());
 }
 
-pub async fn logout(
-    // session: Session,
-    user: Identity
-)
--> Result<impl Responder> {
-    user.logout();
-    Ok(HttpResponse::Ok())
-}
-
-fn _generate_key()
--> String {
-    let api_key:String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect();
-    
-    return api_key;
-}

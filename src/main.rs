@@ -1,3 +1,5 @@
+use actix_cors::Cors;
+use actix_files::{NamedFile, Files};
 use actix_identity::{IdentityMiddleware, Identity};
 use actix_session::{
     config::{PersistentSession, CookieContentSecurity},
@@ -10,33 +12,39 @@ use actix_web::{
     HttpResponse,
     HttpServer,
     Result,
-    error::ErrorInternalServerError,
-    web, Responder,
+    error::{ErrorInternalServerError, HttpError},
+    web, Responder, HttpRequest, Error, get,
 };
+use utoipa::{
+    openapi::security::{ApiKey, ApiKeyValue, SecurityScheme},
+    Modify, OpenApi,
+};
+use utoipa_swagger_ui::SwaggerUi;
 
 use auth::sign_up;
 use cookie::time::Duration;
-use guards::SessionGuard;
+use guards::{SessionGuard, RoleGuard};
 use models::VideoType;
 use tracing::info;
+
 
 use diesel::{
     r2d2::{self,ConnectionManager},
     PgConnection
 };
 use dotenv::dotenv;
-use std::{env, sync::{Arc, Mutex}};
+use std::{env, sync::{Arc, Mutex}, path::PathBuf};
 use std::io;
 pub mod schema;
 pub mod models;
 pub mod auth;
 pub mod db_actions;
 pub mod guards;
+pub mod ultils;
 
-use crate::auth::{
-    login,
-    secret,
-    logout
+use crate::{
+    auth::{login,logout},
+    models::{SwaggerErrorResponse, Role}
 };
 use crate::db_actions::{
     get_everything,
@@ -46,8 +54,8 @@ use crate::db_actions::{
 pub type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbError = Box<dyn std::error::Error + Send + Sync>;
 
-const _ONEDAY: Duration = Duration::days(1);
-const ONEMIN: Duration = Duration::minutes(1);
+const ONEDAY: Duration = Duration::days(1);
+const _ONEMIN: Duration = Duration::minutes(1);
 
 pub struct AppState {
     pub pool: DbPool,
@@ -72,7 +80,34 @@ async fn main() -> io::Result<()> {
         api_keys: Mutex::new(Vec::new()),
     });
 
+    #[derive(OpenApi)]
+    #[openapi(
+        paths(
+            auth::sign_up,
+            auth::login,
+            auth::logout,
+            user_data
+        ),
+        components (
+            schemas(
+                models::LikedVideos,
+                models::WatchedVideos,
+                models::UserWithVideos,
+                models::User,
+                models::SwaggerErrorResponse,
+                auth::Credentials
+            )
+        )
+    )]
+    struct ApiDoc;
+
+    let openapi = ApiDoc::openapi();
+
     HttpServer::new(move|| {
+          let cors = Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .expose_any_header();
         App::new()
             .wrap(IdentityMiddleware::default())
             .wrap(
@@ -82,51 +117,99 @@ async fn main() -> io::Result<()> {
                 .cookie_http_only(true)
                 .cookie_content_security(CookieContentSecurity::Private)
                 .cookie_same_site(SameSite::Strict)
-                .session_lifecycle(PersistentSession::default().session_ttl(ONEMIN))
+                .session_lifecycle(PersistentSession::default().session_ttl(ONEDAY))
                 .build(),
             )
+            .wrap(cors)
             .app_data(web::Data::new(state.clone()))
-            .route("/", web::get().to(index))
-            .route("/signup", web::post().to(sign_up))
-            .route("/login", web::post().to(login))
-            .route("/logot", web::post().to(logout))
-            .service(web::scope("/user")
-                .route("/secret", web::get().to(secret))
-                .route("/info/{user_id}", web::get().to(user_data))
-                .route("/video/{id}/{title}/{vid_id}/{video_type}", web::post().to(new_video))
+            .service(sign_up)
+            .service(login)
+            .service(logout)
+            .service(user_data)
+            .service(
+                SwaggerUi::new("/swagger-ui/{_:.*}").url("/api-doc/openapi.json", openapi.clone()),
             )
+            // .service(
+            //     Files::new("/","./static")
+            //     .show_files_listing()
+            //         .index_file("index.html")
+            //         .use_last_modified(true)
+            // )
+            // .route("/", web::get().to(index))
+            // .route("/logot", web::post().to(logout))
+            // .service(web::scope("/user")
+            //     .route("/secret", web::get().to(secret))
+            //     .route("/info/{user_id}", web::get().to(user_data))
+            //     .route("/video/{id}/{title}/{vid_id}/{video_type}", web::post().to(new_video))
+            // )
     })
     .bind(("127.0.0.1", 8080))?
     .run()
     .await
 }
 
-async fn index(user: Option<Identity>) -> Result<impl Responder> {
-    if let Some(user) = user {
-        Ok(format!("Hello {}",user.id().unwrap()))
-    } else {
-        Ok(format!("Hello User"))
-    }
+
+
+async fn index(
+    _user: Option<Identity>, 
+    _req: HttpRequest
+) -> Result<impl Responder> {
+    // if let Some(_user) = user {
+        let path: PathBuf = "./static/index.html".parse().unwrap();
+        Ok(NamedFile::open(path).unwrap())
+    // } else {
+    //     Err(HttpResponse::Unauthorized().body("not signed in or logged in"))
+    // }
 
 }
 
 
+#[utoipa::path(
+    responses(
+        (
+            status = 200,
+            description = "Fetches a specific user",
+            body = UserWithVideos
+        ),
+        (
+            status = 401,
+            description = "Not authorized",
+            body = SwaggerErrorResponse,
+            example = json!(SwaggerErrorResponse::Unauthorized(String::from("Not authorized User")))
+        ),
+    )
+)]
+#[get("/user/{id}")]
 async fn user_data(
     state: web::Data<Arc<AppState>>,
     path: web::Path<i32>,
-    session_guard: SessionGuard
+    session_guard: SessionGuard,
+    req: HttpRequest
+    // role_guard: RoleGuard
 )
 -> Result<HttpResponse> {
-    if let Some(_session) = session_guard.session {
-        let user_id = path.into_inner();
-        let info = web::block(move || {
-            let mut conn = state.pool.get()?;
-            get_everything(&mut conn, user_id)
+    if let Some(_sess) =  session_guard.session {
+        if let Some(cook) = req.cookie("role") {
+            let parsed_cookie = cook.value().parse::<Role>().unwrap();
+            match parsed_cookie {
+                Role::ADMIN => {
+                    let user_id = path.into_inner();
+                    let info = web::block(move || {
+                        let mut conn = state.pool.get()?;
+                        get_everything(&mut conn, user_id)
 
-        })
-        .await?;
+                    })
+                    .await?;
+                    Ok(HttpResponse::Ok().json(info.unwrap()))
+                },
+                    Role::User => {
+                    Ok(HttpResponse::Unauthorized().body("Not an Admin"))
+                }
+            }
 
-        Ok(HttpResponse::Ok().json(info.unwrap()))
+        } else {
+        Ok(HttpResponse::Unauthorized().body("Not authorized! guess no cookie!"))
+        }
     } else {
         Ok(HttpResponse::Unauthorized().body("Not authorized!"))
     }

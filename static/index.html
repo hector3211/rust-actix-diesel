@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Hector's Actix API</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script
+      src="https://unpkg.com/htmx.org@1.9.2"
+      integrity="sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <main class="bg-zinc-700 min-h-screen max-w-full">
+      <h1 class="flex justify-center items-center text-3xl font-bold">
+        Welcome to Hecto's API
+      </h1>
+      <div
+        hx-target="this"
+        hx-swap="outerHTML"
+        class="flex justify-center items-center mt-5"
+      >
+        <button
+          hx-get="/signup/page"
+          class="mx-3 rounded-md bg-white p-1 outline outline-white"
+        >
+          Register
+        </button>
+        <button
+          hx-get="/login/page"
+          class="mx-3 rounded-md bg-white p-1 outline outline-white"
+        >
+          Login
+        </button>
+      </div>
+      <form
+        hx-pot="/signup"
+        hx-target="this"
+        hx-swap="outerHTML"
+        class="flex flex-col items-center"
+      >
+        <label>Email</label>
+        <input type="text" id="email" />
+        <label>Password</label>
+        <input type="text" id="password" />
+        <button class="w-28 mt-5 bg-white outline outline-black rounded-md">
+          Sign up
+        </button>
+      </form>
+    </main>
+  </body>
+</html>

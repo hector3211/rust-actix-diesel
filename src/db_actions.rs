@@ -7,7 +7,11 @@ use crate::models::VideoTypeResult;
 use crate::schema::liked_videos;
 use crate::schema::users;
 use crate::schema::watched_videos;
-use crate::{models::{UserWithVideos, LikedVideos, WatchedVideos}, DbError};
+use crate::models::{
+    UserWithVideos,
+    LikedVideos,
+    WatchedVideos
+};
 use actix_web::HttpResponse;
 
 
@@ -28,7 +32,7 @@ pub fn authenticate(
     creds: Credentials,
     conn: &mut PgConnection
 ) 
--> Result<User, DbError> {
+-> Result<User, anyhow::Error> {
     let user: User = users::table
         .filter(users::email.eq(&creds.email))
         .select(User::as_select())
@@ -41,7 +45,7 @@ pub fn get_everything(
     conn: &mut PgConnection,
     id: i32
 )
--> Result<UserWithVideos, DbError>  {
+-> Result<UserWithVideos, anyhow::Error>  {
     let user: User = users::table
         .filter(users::id.eq(id))
         .select(User::as_select())
@@ -68,7 +72,7 @@ pub fn get_user_info(
     conn: &mut PgConnection,
     id: i32
 )
--> Result<Vec<LikedVideos>, DbError> {
+-> Result<Vec<LikedVideos>, anyhow::Error> {
     let user: User = users::table
         .filter(users::id.eq(id))
         .select(User::as_select())
@@ -85,7 +89,7 @@ pub fn create_user(
     conn: &mut PgConnection,
     creds: Credentials
 )
--> Result<User, DbError> {
+-> Result<User, anyhow::Error> {
     let mut role: String = String::from("User");
     if creds.email == std::env::var("ADMIN_KEY").unwrap() && creds.password == std::env::var("ADMIN_SECOND_KEY").unwrap() {
         role = "ADMIN".to_string();
@@ -110,7 +114,7 @@ pub fn create_liked_videos(
     vid_id: i32,
     video_type: VideoType
 )
--> Result<VideoTypeResult, DbError> {
+-> Result<VideoTypeResult, anyhow::Error> {
     match video_type {
         VideoType::LIKED => {
             let liked_vids = diesel::insert_into(liked_videos::table)

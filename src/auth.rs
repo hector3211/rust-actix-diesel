@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use crate::AppState;
 use crate::db_actions::{authenticate, create_user, validate_email};
-use crate::models::{User, SwaggerErrorResponse};
+use crate::models::SwaggerErrorResponse;
 
 
 #[derive(Debug, Deserialize,Serialize,Clone, ToSchema)]
@@ -41,16 +41,19 @@ pub async fn sign_up(
     let creds = creds.into_inner();
 
 
-    let user = web::block(move || {
+    let resp = web::block(move || {
         let mut conn = state.pool.get()?;
         create_user(&mut conn, creds)
     })
     .await?;
 
-    let user: User = user.unwrap();
-    session.insert("user", user.id.clone()).unwrap();
-    session.insert("role", user.role.clone()).unwrap();
-    Ok(HttpResponse::Created().json(user))
+    if let Ok(user) = resp {
+        session.insert("user", user.id.clone()).unwrap();
+        session.insert("role", user.role.clone()).unwrap();
+        Ok(HttpResponse::Created().json(user))
+    } else {
+        Ok(HttpResponse::InternalServerError().body("Internal Server Error!"))
+    }
 }
 
 #[utoipa::path(
@@ -78,7 +81,7 @@ pub async fn login(
 -> Result<impl Responder> {
     let creds = creds.into_inner();
     let cred_two = creds.clone();
-    if let Ok(_) = validate_email(&creds.email) {
+    if validate_email(&creds.email).is_ok() {
         let resp = web::block(move || {
             let mut conn = state.pool.get()?;
             authenticate(creds, &mut conn)
@@ -86,8 +89,8 @@ pub async fn login(
         .await?;
         
         if let Ok(user) = resp {
-            let hash_check = bcrypt::verify(cred_two.password, &user.password_hash).unwrap();
-            match hash_check {
+            let hash_check = bcrypt::verify(cred_two.password, &user.password_hash);
+            match hash_check.is_ok() {
                 true => {
                     Identity::login(&req.extensions(), user.email.into()).unwrap();
                     // let cookie = CookieBuilder::new("role", user.role.unwrap())
@@ -115,19 +118,18 @@ pub async fn login(
     responses(
         (
             status = 200,
-            description = "Log out a user",
+            description = "Successfully Logged Out User",
         ),
         (
             status = 404,
-            description = "User Not Found",
+            description = "Session Not Found",
             body = SwaggerErrorResponse,
-            example = json!(SwaggerErrorResponse::NotFound(String::from("User Not Found")))
+            example = json!(SwaggerErrorResponse::NotFound(String::from("Session Not Found")))
         ),
     )
 )]
 #[post("/logout")]
 pub async fn logout(
-    // session: Session,
     user: Identity
 )
 -> Result<impl Responder> {

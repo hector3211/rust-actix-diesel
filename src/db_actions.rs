@@ -1,3 +1,4 @@
+use actix_web::error::ErrorNotAcceptable;
 use diesel::prelude::*;
 use diesel::PgConnection;
 use crate::auth::Credentials;
@@ -34,7 +35,6 @@ pub fn authenticate(
         .filter(users::email.eq(&creds.email))
         .select(User::as_select())
         .get_result(conn)?;
-
 
     Ok(user)
 }

@@ -4,7 +4,7 @@ use actix_identity::{IdentityMiddleware, Identity};
 use actix_session::{
     config::{PersistentSession, CookieContentSecurity},
     storage::CookieSessionStore,
-    SessionMiddleware
+    SessionMiddleware, Session
 };
 use actix_web::{
     cookie::{Key,SameSite},
@@ -23,7 +23,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use auth::sign_up;
 use cookie::time::Duration;
-use guards::{SessionGuard, RoleGuard};
+use guards::SessionGuard;
 use models::VideoType;
 use tracing::info;
 
@@ -184,14 +184,13 @@ async fn user_data(
     state: web::Data<Arc<AppState>>,
     path: web::Path<i32>,
     session_guard: SessionGuard,
-    req: HttpRequest
-    // role_guard: RoleGuard
+    session: Session
 )
 -> Result<HttpResponse> {
     if let Some(_sess) =  session_guard.session {
-        if let Some(cook) = req.cookie("role") {
-            let parsed_cookie = cook.value().parse::<Role>().unwrap();
-            match parsed_cookie {
+        if let Some(role) = session.get::<String>("role").unwrap() {
+            let user_role = Role::try_from(role).unwrap();
+            match user_role {
                 Role::ADMIN => {
                     let user_id = path.into_inner();
                     let info = web::block(move || {
@@ -202,13 +201,12 @@ async fn user_data(
                     .await?;
                     Ok(HttpResponse::Ok().json(info.unwrap()))
                 },
-                    Role::User => {
-                    Ok(HttpResponse::Unauthorized().body("Not an Admin"))
+                Role::User => {
+                    Ok(HttpResponse::Unauthorized().body("Not authorized!"))
                 }
             }
-
         } else {
-        Ok(HttpResponse::Unauthorized().body("Not authorized! guess no cookie!"))
+        Ok(HttpResponse::Unauthorized().body("Not authorized!"))
         }
     } else {
         Ok(HttpResponse::Unauthorized().body("Not authorized!"))

@@ -3,6 +3,7 @@ use actix_identity::Identity;
 
 use actix_session::Session;
 use actix_web::cookie::CookieBuilder;
+use actix_web::error::ErrorNotFound;
 use actix_web::{HttpResponse, web, Responder, Result, Error, HttpRequest, HttpMessage, get, post};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -68,10 +69,10 @@ pub async fn sign_up(
             description = "Log in a user",
         ),
         (
-        status = 404,
-        description = "User Not Found",
-        body = SwaggerErrorResponse,
-        example = json!(SwaggerErrorResponse::NotFound(String::from("User Not Found")))
+            status = 404,
+            description = "User Not Found",
+            body = SwaggerErrorResponse,
+            example = json!(SwaggerErrorResponse::NotFound(String::from("User Not Found")))
         ),
     )
 )]
@@ -85,31 +86,37 @@ pub async fn login(
 -> Result<impl Responder> {
     let creds = creds.into_inner();
     let cred_two = creds.clone();
+    if let Ok(_) = validate_email(&creds.email) {
+        let resp = web::block(move || {
+            let mut conn = state.pool.get()?;
+            authenticate(creds, &mut conn)
+        })
+        .await?;
+        
+        if let Ok(user) = resp {
+            let hash_check = bcrypt::verify(cred_two.password, &user.password_hash).unwrap();
+            match hash_check {
+                true => {
+                    Identity::login(&req.extensions(), user.email.into()).unwrap();
+                    // let cookie = CookieBuilder::new("role", user.role.unwrap())
+                    //     .secure(true)
+                    //     .http_only(true)
+                    //     .finish();
+                    session.insert("role", user.role).unwrap();
+                    Ok(HttpResponse::Ok().body("Back In Action!"))
 
-    let resp = web::block(move || {
-        let mut conn = state.pool.get()?;
-        authenticate(creds, &mut conn)
-    })
-    .await?;
-    
-    let user: User = resp.unwrap();
-
-    let hash_check = bcrypt::verify(cred_two.password, &user.password_hash).unwrap();
-    match hash_check {
-       true => {
-            Identity::login(&req.extensions(), user.email.into()).unwrap();
-            let cookie = CookieBuilder::new("role", user.role.unwrap())
-                .secure(true)
-                .http_only(true)
-                .finish();
-            Ok(HttpResponse::Ok().cookie(cookie).finish())
-
-        },
-        false => {
-            Ok(HttpResponse::Unauthorized().body("Not Authenticated!"))
-
+                },
+                false => {
+                    Ok(HttpResponse::NotFound().body("User not found, please double check credintails"))
+                }
+            }
+        } else {
+            Ok(HttpResponse::NotFound().body("User not found, please double check credintails"))
         }
+    } else {
+        Ok(HttpResponse::NotAcceptable().body("Email Provided was invalid!"))
     }
+
 }
 
 #[utoipa::path(
@@ -134,39 +141,5 @@ pub async fn logout(
 -> Result<impl Responder> {
     user.logout();
     Ok(HttpResponse::Ok().body("Successfully Loged Out"))
-}
-
-fn _generate_key()
--> String {
-    let api_key:String = thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(32)
-        .map(char::from)
-        .collect();
-
-    return api_key;
-}
-
-pub fn validate_session(sess_guard: SessionGuard)-> Result<HttpResponse, Error> {
-    if let Some(session) = sess_guard.session {
-            Ok(HttpResponse::Ok().body(format!("Session: {}", session)))
-        } else {
-            Ok(HttpResponse::Unauthorized().body("Unauthorized!"))
-    }
-        
-}
-
-pub async fn secret(sess_guard: SessionGuard) -> Result<impl Responder> {
-    let auth = validate_session(sess_guard).unwrap();
-    Ok(auth)
-}
-
-
-pub async fn apikey_to_state(
-    state: web::Data<Arc<AppState>>,
-    key: &str
-) {
-    let mut keys = state.api_keys.lock().unwrap();
-    keys.push(key.to_string());
 }
 

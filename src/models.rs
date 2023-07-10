@@ -12,18 +12,18 @@ pub enum Role {
     ADMIN
 }
 
-// impl TryFrom<String> for Role {
-//     type Err = anyhow::Error;
-//     fn try_from(value: String) -> Result<Self, Self::Error> {
-//         match value {
-//             "User" => Ok(Role::User),
-//             "Admin" => Ok(Role::ADMIN),
-//             _ => {
-//             Err(anyhow::Error::msg("Couldn't convert in Role Enum"))
-//             }
-//         }
-//     }
-// }
+impl TryFrom<String> for Role {
+    type Error = anyhow::Error;
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        match value.as_str() {
+             "User" => Ok(Role::User),
+            "ADMIN" => Ok(Role::ADMIN),
+            _ => {
+            Err(anyhow::Error::msg("Try From<String> Couldn't convert in Role Enum"))
+            }
+        }
+    }
+}
 
 impl FromStr for Role {
     type Err = anyhow::Error;
@@ -32,7 +32,7 @@ impl FromStr for Role {
             "User" => Ok(Role::User),
             "ADMIN" => Ok(Role::ADMIN),
             _ => {
-            Err(anyhow::Error::msg("Couldn't convert in Role Enum"))
+            Err(anyhow::Error::msg("FromStr Couldn't convert in Role Enum"))
             }
         }
     }

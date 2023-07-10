@@ -16,18 +16,10 @@ choice, DX is awsome and it's simple to get started with. Ended up going to Acti
 - Authorization
 - Guards
 
-## Examples
+## How To Run
 
-### Loging in
+```bash
+cargo run
+```
 
-curl -X POST -H "Content-Type: application/json" -d '{"email":"user-email,"password":"user-password"}' http://localhost:8000/login
-
-With status code: 200 **if found**
-
----
-
-### signing up
-
-curl -X POST -H "Content-Type: application/json" -d '{"email":"user-email,"password":"user-password"}' http://localhost:8000/login
-
-With status code: 201 **if created**
+Go to **localhost:8080/swagger-ui/**
